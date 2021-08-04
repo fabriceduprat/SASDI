@@ -1,0 +1,7 @@
+/__pycache__
+/.vs
+/params/defaultvideo.mp4.csv
+/params/lastdir.txt
+/params/list_videos.json
+/params/roi_coord.json
+/params/infos_serie.json

@@ -1,0 +1,10 @@
+cycler==0.10.0
+ffprobe-python==1.0.3
+matplotlib==3.4.0
+numpy==1.20.2
+opencv-python==4.5.1.48
+pandas==1.2.3
+pickleshare==0.7.5
+Pillow==8.1.2
+schedule==1.1.0
+scipy==1.6.2

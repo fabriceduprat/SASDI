@@ -26,11 +26,11 @@ CONFIGURING
 
 You can manually change the default parameters in file /sasdi/params/parameters.json.
 Make sure to keep the dict structure {key1: value1, key2: value2, ...}
-  - max_fps
+  - max_fps : 
   The max_fps value (string) is the threshold above which sasdi considered as abnormal the fps (frames per second) read in video file header.
   If your videos present a high frame rate increase this value above your fps.
   This is important in case of file with no fps indicated in their header, sasdi will allow you to manually enter the correct fps value.
-  - extensions
+  - extensions : 
   Make sure to keep the list structure [val1, val2, ...]
   This is the list of accepted extension by sasdi, you can add other extensions but make sure they are fully compatible with opencv module (used for video analysis).
   Note that even with the accepted extension, a video file could be incompatible with opencv if your file is encoded with an unusual codec.

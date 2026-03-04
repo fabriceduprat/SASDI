@@ -6,9 +6,8 @@ import sys
 import tkinter as tk                    # standard library
 import json                             # standard library
 from tkinter import simpledialog
-import cv2                              # opencv-python 4.0.0
-from ffprobe import FFProbe
-
+import cv2                              # opencv-python
+from moviepy.video.io.VideoFileClip import VideoFileClip
 
 # NAME OF USED COLORS
 COLOR_BACKGROUND = "azure"              # azure  (240, 255, 255)  #f0ffff
@@ -57,12 +56,12 @@ def format_duration(duration_sec):
     time_mins, time_seconds = divmod(remainder2, 60)
     formatted_duration = ""
     if time_days > 0:
-        formatted_duration += (str(int(time_days)) +"days ")
+        formatted_duration += f"{int(time_days)}days "
     if time_hours > 0:
-        formatted_duration += (str(int(time_hours)) + "h ")
+        formatted_duration += f"{int(time_hours)}h "
     if time_mins > 0:
-        formatted_duration += (str(int(time_mins)) + "min ")
-    formatted_duration += (str(int(time_seconds)) + "s")
+        formatted_duration += f"{int(time_mins)}min "
+    formatted_duration += f"{int(time_seconds)}s"
     return formatted_duration
 
 def read_parameters():
@@ -74,146 +73,54 @@ def read_parameters():
     params_dir = os.path.join(sys.path[0], 'params', 'parameters.json')
     if os.path.exists(params_dir):
         try:
-            with open(params_dir, 'r') as filereader:
+            with open(file=params_dir,
+                      mode='r',
+                      encoding="utf-8"
+                      ) as filereader:
                 myparams = json.load(filereader)
+                extensions = tuple([x.upper() for x in myparams["extensions"]])
         except IOError as json_error:
             print(f"Error reading parameters.json: {json_error}")
             # return 100 as default fps, and 4 accepted file extensions
-            return "?.?", 100, tuple(['avi', 'mp4', 'wmv', 'asf']), tuple(['AVI', 'MP4', 'WMV', 'ASF'])
+            return ("?.?", 100, tuple(['avi', 'mp4', 'wmv', 'asf']), tuple(['AVI', 'MP4', 'WMV', 'ASF']))
         else:
-            return myparams["version"], int(myparams["max_fps"]), tuple(myparams["extensions"]), tuple([x.upper() for x in myparams["extensions"]])
+            return (myparams["version"], int(myparams["max_fps"]), tuple(myparams["extensions"]), extensions)
 
     else:
         print("Cannot find parameters.json, Creating a new one")
-        with open(params_dir, 'w') as filewriter:
-            try:
+        try:
+            with open(file=params_dir,
+                     mode= 'w',
+                     encoding="utf-8"
+                     ) as filewriter:
                 base_params = {"version": "4.1",
                                "max_fps": "100",
                                "extensions":['avi', 'mp4', 'wmv', 'asf']
                               }
+                base_extensions = tuple([x.upper() for x in base_params["extensions"]])
                 filewriter.write(json.dumps(base_params, indent=""))
-            except IOError as json_error:
-                print(f"Error writing new parameters.json: {json_error}")
+        except IOError as json_error:
+            print(f"Error writing new parameters.json: {json_error}")
         # return 100 as default fps, and 4 accepted file extensions
-        return base_params["version"], int(base_params["max_fps"]), tuple(base_params["extensions"]), tuple([x.upper() for x in base_params["extensions"]])
+        return (base_params["version"], int(base_params["max_fps"]), tuple(base_params["extensions"]), base_extensions)
 
+def get_fps_from_moviepy(fullvideopath):
+    "Return fps, duration of file fullvideopath, if readable with moviepy module, otherwise return 0"
 
-def check_list_videos(videopathdir, videolist, subdir_index):
-    """ INPUT current video directory, list of video filenames,
-        CHECK videos by reading their fps and number of frames,
-        RETURN list of videos infos:
-        [0]:video filename, [1]:fps (float), [2]:nb frames (int), [3]:pathname, [4]:file index (int), [5]:status ('A', '-', 'M', 'C'), [6]:subdir index (0 if not a serie)
-        RETURN statistics (int): [0]:total number, [1]:to analyze, [2]:analyzed, [3]:fps of nb frames is modified, [4]:corrupted
-    """
-
-    # Get max fps value and accepted video files extensions
-    _, fps_limit, images_extensions_lower, extensions_upper = read_parameters()
-    images_extensions = images_extensions_lower + extensions_upper
-    list_videos = []
-    stats_videos = [0, 0, 0, 0, 0]     # [0]:total number, [1]:to analyze, [2]:analyzed, [3]:fps or nb frames modified, [4]:corrupted
-    index_files = 0       # 0-based index of file
-    modified_fps = 0
-    file_status = ""
-
-    # Go through all video files
-    for current_file in videolist:
-        if current_file.endswith(images_extensions):
-            file_status = ""
-            stats_videos[0] += 1            # total number of videos
-            try:
-                # Read video header infos with opencv
-                video = cv2.VideoCapture(os.path.join(videopathdir, current_file))
-                nb_frames = video.get(cv2.CAP_PROP_FRAME_COUNT)
-                fps = video.get(cv2.CAP_PROP_FPS)
-            except cv2.error as cv2_error:   #Exclude empty video or with read error
-                video.release()
-                print(f"Corrupted file, cannot read with opencv: {os.path.join(videopathdir, current_file)} -> {cv2_error}")
-                stats_videos[4] += 1    # corrupted file
-                file_status = "C"
-            else:       # video is correctly read with opencv
-                video.release()
-                # Check number of frames (cannot propose to user because each file will be different)
-                if nb_frames < 10:
-                    ffprobe_fps = 0
-                    ffprobe_duration = 0
-                    try:
-                        # Read video header infos with ffprobe
-                        metadata = FFProbe(os.path.join(videopathdir, current_file))
-                        for stream in metadata.streams:
-                            if stream.is_video():
-                                ffprobe_fps = float(eval(stream.r_frame_rate))
-                                ffprobe_duration = round(eval(stream.duration))
-                    except:
-                        print(f"Corrupted number of frames={nb_frames}, and cannot read video header with ffprobe: {os.path.join(videopathdir, current_file)}")
-                        stats_videos[4] += 1    # corrupted file
-                        file_status = "C"
-                    else:
-                        ffprobe_nb_frames = round(ffprobe_fps * ffprobe_duration)
-                        if ffprobe_nb_frames > 10:
-                           print(f"Using number of frames read with ffprobe ({ffprobe_nb_frames}): {os.path.join(videopathdir, current_file)}")
-                           file_status = "M"
-                           nb_frames = ffprobe_nb_frames
-                        else:
-                            print(f"Corrupted number of frames={nb_frames}, and cannot read video header with ffprobe: {os.path.join(videopathdir, current_file)}")
-                            stats_videos[4] += 1    # corrupted file
-                            file_status = "C"
-                # Check fps
-                if modified_fps:        # if already given by user use modified fps
-                    fps = modified_fps
-                    file_status = "M"
-                elif (not fps or fps > fps_limit) and file_status != "C" and nb_frames > 10:
-                    # Wrong fps not yet corrected by user and with a proper number of frames
-                    try:
-                        # Read video header infos with ffprobe
-                        metadata = FFProbe(os.path.join(videopathdir, current_file))
-                        for stream in metadata.streams:
-                            if stream.is_video():
-                                ffprobe_fps = float(eval(stream.r_frame_rate))
-                    except:
-                        print(f"Corrupted fps={fps}, and cannot read video header with ffprobe: {os.path.join(videopathdir, current_file)}")
-                        stats_videos[4] += 1    # corrupted file
-                        file_status = "C"
-                    else:
-                        modified_fps = simpledialog.askfloat(title=f"Wrong fps for <{current_file}>: {fps}",
-                                                             prompt="For all videos, force fps to ffprobe value or enter one (float 2 digits) ?",
-                                                             initialvalue=ffprobe_fps
-                                                            )
-                        if not modified_fps:
-                            print(f"Corrupted fps not corrected by user: {os.path.join(videopathdir, current_file)}")
-                            stats_videos[4] += 1
-                            file_status = "C"    # corrupted file
-                        else:
-                            modified_fps = round(modified_fps, 2)
-                            fps = modified_fps
-
-                # fps or nb frames was modified, add to statistics
-                if file_status == "M":
-                    stats_videos[3] += 1
-                if file_status != "C":
-                   # add non corrupted video infos
-                   if os.path.isfile(os.path.join(videopathdir, current_file+".csv")):
-                       stats_videos[2] += 1      # file is analyzed
-                       file_status = "A" + file_status
-                   else:
-                       stats_videos[1] += 1      # file to analyze
-                       file_status = "_" + file_status
-                   list_videos.append([current_file, round(fps, 2), round(nb_frames), videopathdir, index_files, file_status, subdir_index])
-                  # [0]:video filename, [1]:fps, [2]:nb_frames, [3]:pathname, [4]:file index, [5]:status ('A', '-', 'M', 'C'), [6]:subdir index (0 if not a serie)
-                else:
-                    # add corrupted video infos
-                    list_videos.append([current_file, 0, 0, videopathdir, index_files, 'C', subdir_index])
-                    # [0]:video filename, [1]:fps, [2]:nb_frames, [3]:pathname, [4]:file index, [5]:status ('A', '-', 'M', 'C'), [6]:subdir index (0 if not a serie)
-                index_files += 1
-    return list_videos, stats_videos
-
+    moviepy_duration = 0
+    moviepy_fps = 0
+    clip = VideoFileClip(fullvideopath)
+    moviepy_duration = clip.duration
+    moviepy_fps = clip.fps
+    return moviepy_fps, moviepy_duration
 
 def save_get_list_videos(videopathdir, videolist):
-    """ INPUT current video directory, list of video filenames, for a directory or file selection 
-        CHECK videos with check_list_videos(),
+    """ INPUT [current video directory], list of video filenames,
+        CHECK videos by reading their fps and duration,
         SAVE valid videos infos to list_videos.json,
-        RETURN list of videos infos:
-        [0]:video filename, [1]:fps (float), [2]:nb frames (int), [3]:pathname, [4]:file index (int), [5]:status ('A', '-', 'M', 'C'), [6]:0
-        RETURN statistics (int): [0]:total number, [1]:to analyze, [2]:analyzed, [3]:fps of nb frames is modified, [4]:corrupted
+        RETURN list valid videos infos:
+        [0]:video filename, [1]:fps (float), [2]:duration (int), [3]:pathname, [4]:file index (int), [5]:status ('A', '-', 'C'), [6]:0
+        RETURN statistics (int): [0]:total number, [1]:to analyze, [2]:analyzed, [3]:corrupted
     """
 
     # Check video path exists
@@ -222,11 +129,76 @@ def save_get_list_videos(videopathdir, videolist):
     if not os.path.exists(videopathdir):
         return None, None
 
-    # Check all videos and get status statistics
-    list_videos, stats_videos = check_list_videos(videopathdir, videolist, 0)
+   # Get max fps value and accepted video files extensions
+    _, fps_limit, images_extensions_lower, extensions_upper = read_parameters()
+    images_extensions = images_extensions_lower + extensions_upper
+    list_videos = []
+    stats_videos = [0, 0, 0, 0, 0]  # number of videos [total, to analyse, analysed, modified fps, corrupted]
+    index_valid_files = 0       # 0-based index of file
+    modified_fps = 0
+
+    # Go through all video files
+    for current_file in videolist:
+        if current_file.endswith(images_extensions):
+            use_modified_fps = ""
+            stats_videos[0] += 1            # total number of videos
+            try:
+                video = cv2.VideoCapture(os.path.join(videopathdir, current_file))
+                nb_frames = round(video.get(cv2.CAP_PROP_FRAME_COUNT))
+                fps = round(video.get(cv2.CAP_PROP_FPS), 1)
+            except cv2.error as cv2_error:   # Corrupted file = empty video or with read error
+                print(f"Error reading {os.path.join(videopathdir, current_file)}: {cv2_error}")
+                video.release()
+                stats_videos[4] += 1        # corrupted file
+                list_videos.append([current_file, 0, 0, videopathdir, 0, 'C', 0])
+                continue
+            else:       # video is correctly read
+                if fps:           # not null fps value found
+                    duration = round(nb_frames / fps)
+                if not nb_frames:        # empty file counted as corrupted
+                    video.release()
+                    stats_videos[4] += 1
+                    list_videos.append([current_file, 0, 0, videopathdir, 0, 'C', 0])
+                    continue
+                if (not fps or fps >= fps_limit) and not modified_fps:           # wrong fps value, propose ffprobe value
+                    #### CHANGED BY MOVIEPY
+                    ffprobe_fps, ffprobe_duration = get_fps_from_moviepy(os.path.join(videopathdir, current_file))
+                    modified_fps = simpledialog.askfloat(title=f"Wrong fps value in video infos: {fps}",
+                                                         prompt="All videos: force fps to following value or enter one (float, max 1 decimal) ?",
+                                                         initialvalue=ffprobe_fps
+                                                        )
+                    modified_fps = round(modified_fps, 1)
+                    if not modified_fps:
+                        modified_fps = ffprobe_fps
+                    duration = round(ffprobe_duration)
+                    nb_frames = round(ffprobe_duration * modified_fps)
+                    fps = modified_fps
+                    stats_videos[3] += 1      # file with modified fps
+                    use_modified_fps = "M"
+
+                if (not fps or fps >= fps_limit) and modified_fps:                # Use modified fps previously given by user
+                    duration = round(nb_frames/modified_fps)
+                    fps = modified_fps
+                    stats_videos[3] += 1      # file with modified fps
+                    use_modified_fps = "M"
+
+                if os.path.isfile(os.path.join(videopathdir, current_file+".csv")):
+                    stats_videos[2] += 1      # file is analyzed
+                    list_videos.append([current_file, fps, duration, videopathdir, index_valid_files, 'A' + use_modified_fps, 0])
+                    # [0]:video filename, [1]:fps, [2]:duration, [3]:pathname, [4]:file index, [5]:status ('A', '-', 'M', 'C'), [6]:0
+                    index_valid_files += 1
+                else:
+                    stats_videos[1] += 1      # file to analyze
+                    list_videos.append([current_file, fps, duration, videopathdir, index_valid_files, '_' + use_modified_fps, 0])
+                    # [0]:video filename, [1]:fps, [2]:duration, [3]:pathname, [4]:file index, [5]:status ('A', '-', 'M', 'C'), [6]:0
+                    index_valid_files += 1
+                video.release()
 
     # Save video infos to list_videos.json
-    with open(os.path.join(sys.path[0], 'params', 'list_videos.json'), 'w') as filewriter:
+    with open(file=os.path.join(sys.path[0], 'params', 'list_videos.json'),
+              mode='w',
+              encoding="utf-8"
+              ) as filewriter:
         try:
             filewriter.write(json.dumps(list_videos, indent=""))
         except IOError as json_error:
@@ -239,7 +211,9 @@ def read_infos_serie():
         READ infos_serie.json,
         RETURN a list with all subdirectories short name
     """
-    with open(os.path.join(sys.path[0], 'params', 'infos_serie.json'), 'r') as filereader:
+    with open(file=os.path.join(sys.path[0], 'params', 'infos_serie.json'),
+              mode='r',
+              encoding="utf-8") as filereader:
         try:
             infos_serie = json.load(filereader)
         except IOError as json_error:
@@ -300,13 +274,13 @@ def create_serie_roi():
 def update_serie():
     """ INPUT sasdi directory,
         READ main serie directory fullpath from infos_serie.json,
-        CHECK all videos by reading their fps and number of frames,
+        CHECK all videos by reading their fps and duration,
         SAVE valid videos infos to list_videos.json WITH subserie index,
         SAVE main directory and non empty subdirectories list to infos_serie.json
         RETURN list of valid videos infos WITH subserie index
-        [0]:video filename, [1]:fps (float), [2]:nb frames (int), [3]:pathname, [4]:video index (int), [5]:status ('A', '-', 'M', 'C'), [6]:subdir index (int)
+        [0]:video filename, [1]:fps (float), [2]:duration (int), [3]:pathname, [4]:video index (int), [5]:status ('A', '-'), ++ [6]:subdir index (int)
         RETURN statistics [ [subdir1], [subdir2], ...], for each subdir:
-        (int): [0]:total number, [1]:to analyze, [2]:analyzed, [3]:modified fps or nb frames, [4]:corrupted
+        (int): [0]:total number, [1]:to analyze, [2]:analyzed, [3]:modified fps, [4]:corrupted
         RETURN list of non empty subdirectories
     """
 
@@ -331,33 +305,91 @@ def update_serie():
     images_extensions = images_extensions_lower + extensions_upper
 
     # GET STATS AND INFOS FOR ALL VALID VIDEOS
-    # Initialise list of non empty subdirectories
-    valid_subdir = []
-    valid_subdir_index = 0
-    # Initialise list of valid videos infos
-    list_videos = []
     # Initialise list for stats for each serie subdirectory
     stats_videos = []
+    # Initialise list of valid videos infos
+    list_videos = []
+    # Initialise list of non empty subdirectories
+    valid_subdir = []
+    modified_fps = 0
 
     # GO THROUGH ALL SUBDIRECTORIES short name
     for subdir_index, current_sub_dir in enumerate(serie_subdir_names):
-        # Current subdirectory fullpath
-        videopathdir = os.path.join(main_fullpath, current_sub_dir)
-        # List of videos filenames in current subdirectory
-        list_all_files = os.listdir(videopathdir)
+        subdir_stats = [0, 0, 0, 0, 0]     # (int): [0]:total number, [1]:to analyze, [2]:analyzed, [3]:modified fps, [4]:corrupted
+        index_valid_files = 0      # 0-based index of valid files
+        video_pathname = os.path.join(main_fullpath, current_sub_dir)
+        list_all_files = os.listdir(video_pathname)
         list_all_files.sort()
-        # Check all videos and get status statistics
-        infos_videos, subdir_stats = check_list_videos(videopathdir, list_all_files, valid_subdir_index)
+        # Enumerate all files short names in subdirectory
+        for current_filename in list_all_files:
+            video_path_filename = os.path.join(main_fullpath, current_sub_dir, current_filename)
+            if current_filename.endswith(images_extensions):
+                use_modified_fps = ""
+                subdir_stats[0] += 1            # total number of videos in current subdir
+                try:
+                    video = cv2.VideoCapture(video_path_filename)
+                    nb_frames = round(video.get(cv2.CAP_PROP_FRAME_COUNT))
+                    fps = round(video.get(cv2.CAP_PROP_FPS), 1)
+                except cv2.error as cv2_error:   #Exclude empty video or with read error
+                    print(f"Error reading {video_path_filename}: {cv2_error}")
+                    video.release()
+                    subdir_stats[4] += 1            # corrupted file
+                    # [0]:video filename, [1]:fps, [2]:duration, [3]:pathname, [4]:index, [5]:status ('A', '-', 'M', 'C'), [6]:subdir index
+                    list_videos.append([current_filename, 0, 0, video_pathname, 0, 'C', subdir_index])
+                    continue
+                else:       # video is correctly read
+                    if fps:           # not null fps value found
+                        duration = round(nb_frames / fps)
+                    if not nb_frames:        # empty file counted as corrupted
+                        video.release()
+                        subdir_stats[4] += 1
+                        # [0]:video filename, [1]:fps, [2]:duration, [3]:pathname, [4]:index, [5]:status ('A', '-', 'M', 'C'), [6]:subdir index
+                        list_videos.append([current_filename, 0, 0, video_pathname, 0, 'C', subdir_index])
+                        continue
+                    # Check if fps exceed accepted limit
+                    if (not fps or fps >= fps_limit) and not modified_fps:           # wrong fps value, propose ffprobe value
+                        #### CHANGED TO MOVIEPY
+                        ffprobe_fps, ffprobe_duration = get_fps_from_moviepy(video_path_filename)
+                        modified_fps = simpledialog.askfloat(title=f"Wrong fps value in video infos: {fps}",
+                                                            prompt="All videos: force fps to following value or enter one (float, max 1 decimal) ?",
+                                                            initialvalue=ffprobe_fps
+                                                            )
+                        modified_fps = round(modified_fps, 1)
+                        if not modified_fps:
+                            modified_fps = ffprobe_fps
+                        duration = round(ffprobe_duration)
+                        nb_frames = round(ffprobe_duration * modified_fps)
+                        fps = modified_fps
+                        subdir_stats[3] += 1      # file with modified fps
+                        use_modified_fps = "M"
 
-        # If at least one video is valid: keep current subdir name and add stats and videos infos
-        if len(infos_videos) > 1:
-            valid_subdir_index += 1
+                    if (not fps or fps >= fps_limit) and modified_fps:                # Use modified fps previously given by user
+                        duration = round(nb_frames / modified_fps)
+                        fps = modified_fps
+                        subdir_stats[3] += 1      # file with modified fps
+                        use_modified_fps = "M"
+
+                    if os.path.isfile(video_path_filename+".csv"):
+                        subdir_stats[2] += 1      # file is analyzed
+                        # [0]:video filename, [1]:fps, [2]:duration, [3]:pathname, [4]:index, [5]:status ('A', '-', 'M', 'C'), [6]:subdir index
+                        list_videos.append([current_filename, fps, duration, video_pathname, index_valid_files, 'A' + use_modified_fps, subdir_index])
+                        index_valid_files += 1
+                    else:
+                        subdir_stats[1] += 1      # file to analyze
+                        # [0]:video filename, [1]:fps, [2]:duration, [3]:pathname, [4]:index, [5]:status ('A', '-', 'M', 'C'), [6]:subdir index
+                        list_videos.append([current_filename, fps, duration, video_pathname, index_valid_files, '_' + use_modified_fps, subdir_index])
+                        index_valid_files += 1
+                    video.release()
+
+        # Keep current subdir name if at least one video is valid
+        if index_valid_files:
             valid_subdir.append(current_sub_dir)
-            list_videos.extend(infos_videos)
-            stats_videos.append(subdir_stats)
-  
+        stats_videos.append(subdir_stats)
+
     # Save video infos to list_videos.json
-    with open(os.path.join(sys.path[0], 'params', 'list_videos.json'), 'w') as filewriter:
+    with open(file=os.path.join(sys.path[0], 'params', 'list_videos.json'),
+              mode='w',
+              encoding="utf-8") as filewriter:
         try:
             filewriter.write(json.dumps(list_videos, indent=""))
         except IOError as json_error:
@@ -365,7 +397,9 @@ def update_serie():
 
     # Save main serie directory full path and valid subdirectories names to infos_serie.json
     valid_subdir.sort()
-    with open(os.path.join(sys.path[0], 'params', 'infos_serie.json'), 'w') as filewriter:
+    with open(file=os.path.join(sys.path[0], 'params', 'infos_serie.json'),
+              mode='w',
+              encoding="utf-8") as filewriter:
         try:
             filewriter.write(json.dumps(valid_subdir, indent=""))
         except IOError as json_error:
@@ -374,16 +408,19 @@ def update_serie():
     return list_videos, stats_videos, valid_subdir
 
 
+
 def read_list_videos():
     """ INPUT sasdi directory,
         READ list_videos.json,
         RETURN valid videos infos as list, and message (empty string if no error)
-        [0]:video filename, [1]:fps (float), [2]:nb_frames (int), [3]:pathname, [4]:index (int), [5]:status ('A', '-', 'M', 'C'), [6]:subdir index (0 if not a serie)
+        [0]:video filename, [1]:fps (float), [2]:duration (int), [3]:pathname, [4]:index (int), [5]:status ('A', '-'), +if serie [6]:subdir index
     """
     message = ""
     list_videos = []
     if os.path.exists(os.path.join(sys.path[0], 'params', 'list_videos.json')):
-        with open(os.path.join(sys.path[0], 'params', 'list_videos.json'), 'r') as filereader:
+        with open(file=os.path.join(sys.path[0],'params', 'list_videos.json'),
+                  mode='r',
+              encoding="utf-8") as filereader:
             try:
                 list_videos = json.load(filereader)
             except IOError as json_error:
@@ -400,7 +437,10 @@ def read_roi_coord():
     boxes = []
     message = ""
     if os.path.exists(os.path.join(sys.path[0], 'params', 'roi_coord.json')):
-        with open(os.path.join(sys.path[0], 'params', 'roi_coord.json'), 'r') as filereader:
+        with open(file=os.path.join(sys.path[0], 'params', 'roi_coord.json'),
+                  mode='r',
+                  encoding="utf-8"
+                  ) as filereader:
             try:
                 boxes = json.load(filereader)
             except IOError as json_error:
@@ -413,7 +453,10 @@ def save_roi_coord(boxes):
     """ INPUT sasdi directory, ROI coordinates,
         SAVE selected ROI coordinates to roi_coord.json
     """
-    with open(os.path.join(sys.path[0], 'params', 'roi_coord.json'), 'w') as filewriter:
+    with open(file=os.path.join(sys.path[0], 'params', 'roi_coord.json'),
+              mode='w',
+              encoding="utf-8"
+              ) as filewriter:
         try:
             filewriter.write(json.dumps(boxes, indent=""))
         except IOError as json_error:
@@ -424,7 +467,10 @@ def read_from_lastdir():
         READ and RETURN last used directory path from lastdir.txt
     """
     if os.path.exists(os.path.join(sys.path[0], 'params', 'lastdir.txt')):
-        with open(os.path.join(sys.path[0], 'params', 'lastdir.txt'), 'r') as file_reader:
+        with open(file=os.path.join(sys.path[0], 'params', 'lastdir.txt'),
+                  mode='r',
+              encoding="utf-8"
+              ) as file_reader:
             try:
                 directory_name = file_reader.read()
             except IOError as txt_error:
@@ -433,7 +479,10 @@ def read_from_lastdir():
             else:
                 return directory_name
     else:   # file lastdir.txt does not exists
-        with open(os.path.join(sys.path[0], 'params', 'lastdir.txt'), 'w') as file_writer:
+        with open(file=os.path.join(sys.path[0], 'params', 'lastdir.txt'),
+                  mode='w',
+                  encoding="utf-8"
+                 ) as file_writer:
             try:
                 file_writer.write(sys.path[0])
             except IOError as txt_error:
@@ -448,7 +497,10 @@ def save_to_lastdir(directory_name):
     """ INPUT sasdi directory and directory full path,
         SAVE given directory to lastdir.txt
     """
-    with open(os.path.join(sys.path[0], 'params', 'lastdir.txt'), 'w') as file_writer:
+    with open(file=os.path.join(sys.path[0], 'params', 'lastdir.txt'),
+              mode='w',
+              encoding="utf-8"
+              ) as file_writer:
         try:
             file_writer.write(directory_name)
         except IOError as txt_error:
@@ -491,11 +543,13 @@ def user_guide(sasdi_version):
     message.append('')
     message.append('  SELECTING VIDEO FILES :')
     message.append('    * Select a full directory, a selection of video files, a serie, or keep the previous displayed selection.')
-    message.append('          A serie is a directory containing sub-directories (or "subseries") containing video files (sub-sub-directories will not be considered),')
-    message.append('    * The list of video files is shown with their fps (frame per seconds) and durations, with the following indications:')
+    message.append('          A serie is a directory containing subdirectories (or "subseries") containing video files (sub-subdirectories will not be considered),')
+    message.append('    * The list of video files is shown with their fps (frame per seconds) and calculated durations, with the following indications:')
     message.append('        (-) Video file is not analyzed.')
     message.append('        (A) Already analyzed video file (csv file present).')
-    message.append('    * You can click on video names in the list and unselect them one by one using the "Unselect a video" button.')
+    message.append('        (_M) or (AM) as above + modified fps value (unreadable fps value in file header, user gave a value).')
+    message.append('        (C) Corrupted file, will be ignored by SASDI.')
+    message.append('    * You can click on video names in the list and unselect them one by one using the "Unselect a video" button (except during serie selection).')
     message.append('')
     message.append('  SELECTING ROI (Region Of Interest) :')
     message.append('')
@@ -506,8 +560,8 @@ def user_guide(sasdi_version):
     message.append('    * All selected ROI(s) will be used on all the selected videos, make sure this is correct otherwise select a subset of videos corresponding to the ROI(s).')
     message.append('  ')
     message.append('    * If analyzing a serie, by default the dimensions of each subserie ROI are set automatically ')
-    message.append('          to the size of the first video of each sub-directory,')
-    message.append('    * You can edit the ROIs used for each subdirectory by clicking on "Reselect serie ROIs",')
+    message.append('          to the size of the first video of each subdirectory,')
+    message.append('    * You can edit the ROIs used for each subdirectory by clicking on "Reselect subserie ROIs",')
     message.append('          you will then be prompted for EACH subdirectory to edit the ROI(s) as above, just press S to keep existing ROI.')
     message.append('          The same set of ROIs will be used for all videos within each subdirectory.')
     message.append('')

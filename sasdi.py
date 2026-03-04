@@ -32,7 +32,10 @@ class SasdiContainer(tk.Tk):
             os.mkdir(os.path.join(sys.path[0], "images"))
         # Check lastdir file exists
         if not os.path.exists(os.path.join(sys.path[0], 'params', 'lastdir.txt')):
-            with open(os.path.join(sys.path[0], 'params', 'lastdir.txt'), 'w') as filewriter:
+            with open(file=os.path.join(sys.path[0], 'params', 'lastdir.txt'),
+                      mode='w',
+                      encoding="utf-8"
+                     ) as filewriter:
                 filewriter.write("c:"+os.sep)
 
         # Creates tkinter Main window
@@ -95,4 +98,3 @@ class SasdiContainer(tk.Tk):
 if __name__ == "__main__":
     SASDI = SasdiContainer()         # instance of SasdiContainer
     SASDI.mainloop()                 # main loop to deal with events
-

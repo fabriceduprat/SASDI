@@ -1,28 +1,25 @@
 # -*- coding: utf-8 -*
-"SASDI module to perform motion analysis on input video"
+"SASDI and VASD module to perform motion analysis on input video"
 
 import os                               # standard library
 import csv                              # standard library
 import cv2                              # opencv-python 4.0.0
-from ffprobe import FFProbe
-import sasdi_functions as sf
+from moviepy.video.io.VideoFileClip import VideoFileClip
 
 # SASDI.frames['Detect'].update_listbox(0, 200, 0)  COMMENT ACCEDER ???
 
 
 def one_video_analysis(arg):
-    """ INPUT 1 tuple with 
-        # [0]:video filename, [1]:fps, [2]:nb frames, [3]:pathname, [4] roi coordinates of corresponding subdir (0 if not a serie), [5]:"to analyse" video index, [6] total number of analysed videos
+    """ INPUT 1 tuple with fps, video path, video filename, list of ROI coordinates, video rank (0 based), total number of videos
         Perform video analysis
         OUTPUT results in csv file (video pathname + .csv)
     """
 
     # Parse arguments
-    video_filename, fps, nb_frames, video_path, roi_coord, video_rank,  video_total_nb = arg
+    fps, video_path, video_filename, roi_coord, video_rank, video_total_nb = arg
+    fps = round(float(fps), 2)
     # add full path and filename
     current_video_fullpath = os.path.normpath(os.path.join(video_path, video_filename))
-    # Get max fps value
-    _, fps_limit, _, _ = sf.read_parameters()
 
     # Print videorank, nbvideos, videoname
     print(f"{video_rank+1} / {video_total_nb}: analysing {current_video_fullpath}")
@@ -40,21 +37,30 @@ def one_video_analysis(arg):
         # Capture current video
         vidcap = cv2.VideoCapture(current_video_fullpath)
         # nb_frames = number of frames in the currently analysed video file
-        #nb_frames = int(vidcap.get(cv2.CAP_PROP_FRAME_COUNT))
+        nb_frames = int(vidcap.get(cv2.CAP_PROP_FRAME_COUNT))
         # Get frame per second value of current video
-        #cv2_fps = round(float(vidcap.get(cv2.CAP_PROP_FPS)), 2)
+        cv2_fps = round(float(vidcap.get(cv2.CAP_PROP_FPS)), 2)
     except cv2.error as cv2_error:
         print(f"Error reading informations from {video_filename}: {cv2_error}")
         return
-    # Use FFprobe parameters if wrong fps or wrong frame number or fps read with cv2 is different from saved fps
+    # Use moviepy parameters if wrong fps or wrong frame number or fps read with cv2 is different from saved fps
     error_string = ""
-    if fps > fps_limit:
-        error_string = f"fps>{fps_limit}: {fps}"
+    if fps > 500:
+        error_string = f"fps>100: {fps}"
     if nb_frames < 10:
         error_string += f" frame number<10: {nb_frames}"
+    if cv2_fps != fps:
+        error_string += f" read opencv fps {cv2_fps} different from selected fps {fps}"
     if error_string != "":
-        print(f"File analysis canceled wrong parameters: fps = {fps} (limit is: {fps_limit}), number of frames = {nb_frames} for {current_video_fullpath}")
-        return
+        print(f"{video_filename} >> Error in video infos: {error_string}")
+        try:
+            clip = VideoFileClip(current_video_fullpath)
+            moviepy_duration = clip.duration
+        except:
+            print(f"File analysis canceled, cannot read infos with moviepy: {current_video_fullpath}")
+            return
+        nb_frames = round(moviepy_duration * fps)
+        print(f"Using selected {fps} fps * moviepy duration {moviepy_duration} s = {nb_frames} frames")
 
     # Get first frame
     index_frame = 0

@@ -299,7 +299,7 @@ class Select(tk.Frame):  # Class of page select
         self.show_roi(roi_type="previous")
 
 
-    #################  METHODS #############################
+    #************  METHODS ********************************
 
     def select_videos(self, input_type):
         """ INPUT input_type = 'directory' or multiple 'files',
@@ -380,8 +380,8 @@ class Select(tk.Frame):  # Class of page select
         # Sort list of video short filenames
         video_files.sort()     #sort the list in ascending order
         # Save valid selected videos infos to list_videos.json
-        # Get self.list_videos: [0]:video filename, [1]:fps, [2]:nb_frames, [3]:pathname, [4]:index, [5]:status ('A', '-')
-        # Get self.stats_videos (int): [0]:total number, [1]:to analyse, [2]:analysed, [3]:corrupted
+        # Get self.list_videos: [0]:video filename, [1]:fps, [2]:duration, [3]:pathname, [4]:index, [5]:status ('A', '-', 'M', 'C')
+        # Get self.stats_videos (int): [0]:total number, [1]:to analyse, [2]:analysed, [3]:modified fps, [4] corrupted
         self.list_videos, self.stats_videos = sf.save_get_list_videos(self.main_fullpath, video_files)
 
         # Refresh display in listbox
@@ -436,14 +436,14 @@ class Select(tk.Frame):  # Class of page select
         """
 
         listbox_index = self.listbox_files.curselection()[0]     # Get index of selected line
-        if listbox_index >= 9:
+        if listbox_index >= 8:
             try:
                 self.listbox_files.delete(listbox_index)
-                list_index = int(listbox_index) - 9                     # Index in list is minus header length
+                list_index = int(listbox_index) - 8                     # Index in list is minus header length
                 self.list_videos.pop(list_index)
                 # Save valid selected videos infos to list_videos.json
-                # Get list_videos: [0]:video filename, [1]:nb frames, [2]:duration, [3]:pathname, [4]:index, [5]:status ('A', '-', 'M', 'C')
-                # Get stats_videos (int): [0]:total number, [1]:to analyse, [2]:analysed, [3]:modified fps, [4] corrupted
+                # Get self.list_videos: [0]:video filename, [1]:fps, [2]:duration, [3]:pathname, [4]:index, [5]:status ('A', '-', 'M', 'C')
+                # Get self.stats_videos [total number, to analyse, analysed, modified fps, corrupted] (int)
                 self.list_videos, self.stats_videos = sf.save_get_list_videos(self.main_fullpath, [info[0] for info in self.list_videos])
                 self.refresh_selected_files(newselection=0)                   #refresh listbox with files
             except IndexError:
@@ -483,30 +483,27 @@ class Select(tk.Frame):  # Class of page select
             if (self.main_fullpath != "" and self.serie_subdir_names):
                 # Display serie infos in listbox
                 grand_total = 0
-                self.listbox_files.insert(tk.END, f"  You have selected the serie <{self.main_fullpath}> containing the following subseries:")
+                self.listbox_files.insert(tk.END, "  ==========================================================================")
+                self.listbox_files.insert(tk.END, f"  You have selected the serie <{self.main_fullpath}> containing following subseries:")
                 for subdir_index, subdir_name in enumerate(self.serie_subdir_names):
                     stats = self.stats_videos[subdir_index]
                     grand_total = grand_total + stats[1] + stats[2]
-                    self.listbox_files.insert(tk.END, f" <{subdir_name}>: {stats[0]} total video files with:")
+                    self.listbox_files.insert(tk.END, f"**Subserie <{subdir_name}> : total of {stats[0]} video files with following status:")
                     self.listbox_files.insert(tk.END, f"     {stats[1]} to analyse (_),")
                     self.listbox_files.insert(tk.END, f"     {stats[2]} already analysed (A),")
-                    self.listbox_files.insert(tk.END, f"     {stats[3]} with user modified fps or number of frames (M),")
-                    self.listbox_files.insert(tk.END, f"     {stats[4]} corrupted files (C)")
-                self.listbox_files.insert(tk.END, f"  Legend : (status) #index = <subserie> 'filename' (fps, duration)")
+                    self.listbox_files.insert(tk.END, f"     {stats[3]} with modified fps (M)")
+                    self.listbox_files.insert(tk.END, f"     {stats[4]} corrupted and ignored (C)")
                 self.listbox_files.insert(tk.END, "  ==========================================================================")
-                self.listbox_files.insert(tk.END, "  Note that unselecting a video is not permitted within series selection.")
+                self.listbox_files.insert(tk.END, "  Note that unselecting a video is not permitted within a serie selection.")
+                self.listbox_files.insert(tk.END, f"  Legend : (status) #index = <subserie> filename (fps, duration)")
                 self.listbox_files.insert(tk.END, f"  List of found video files :")
                 for file_info in self.list_videos:
-                    if file_info[1]:
-                        duration_sec = round(file_info[2] / file_info[1])
-                    else:
-                        duration_sec = 0
-                    # [0]:video filename     [1]:fps        [2]:nb frames    [4]:video index+1      [5]:status          [6]:subdir index 
-                    self.listbox_files.insert(tk.END, f"({file_info[5]}) #{file_info[4] + 1:<4}= <{self.serie_subdir_names[file_info[6]]}> '{file_info[0]}' (fps: {file_info[1]}, duration: {sf.format_duration(duration_sec)})")
+                    # [4]:video index+1      [5]:status          [6]:subdir index          [0]:video filename     [1]:fps        [2]:duration
+                    self.listbox_files.insert(tk.END, f"({file_info[5]}) #{file_info[4] + 1:<4}= <{self.serie_subdir_names[file_info[6]]}> {file_info[0]} (fps: {file_info[1]}, duration: {sf.format_duration(file_info[2])})")
 
             else:
                 self.listbox_files.delete(0, "end")
-                self.listbox_files.insert(tk.END, "  ***** No videos found in that directory, please reselect ********************")
+                self.listbox_files.insert(tk.END, "  ***** No videos found in subdirectories, please reselect main serie directory ********************")
 
         # NOT A SERIE DISPLAY
         else:
@@ -530,27 +527,23 @@ class Select(tk.Frame):  # Class of page select
             else:
                 intro = "  Selection from the directory <"
                 # Refresh ROIs display
-                self.show_roi(roi_type="previous")
+                self.show_roi(roi_type="new")
 
             # DISPLAY INFOS
             if self.list_videos:
                 # Display list of videos infos in listbox
+                self.listbox_files.insert(tk.END, "  ==========================================================================")
                 self.listbox_files.insert(tk.END, f"{intro}{self.main_fullpath}> :")
-                self.listbox_files.insert(tk.END, f"  {self.stats_videos[0]} total video files with:")
+                self.listbox_files.insert(tk.END, f"  {self.stats_videos[0]} total video files with following status:")
                 self.listbox_files.insert(tk.END, f"      {self.stats_videos[1]} to analyse (_),")
                 self.listbox_files.insert(tk.END, f"      {self.stats_videos[2]} already analysed (A),")
-                self.listbox_files.insert(tk.END, f"      {self.stats_videos[3]} with user modified fps or number of frames (M),")
-                self.listbox_files.insert(tk.END, f"      {self.stats_videos[4]} corrupted files (C)")
-                self.listbox_files.insert(tk.END, f"  Legend : (status) #index = 'filename' (fps, duration)")
+                self.listbox_files.insert(tk.END, f"      {self.stats_videos[3]} with modified fps (M)")
+                self.listbox_files.insert(tk.END, f"      {self.stats_videos[4]} corrupted and ignored (C)")
                 self.listbox_files.insert(tk.END, " ==========================================================================")
-                self.listbox_files.insert(tk.END, f"  List of found video files:")
+                self.listbox_files.insert(tk.END, f"  List of all found video files:")
                 for file_info in self.list_videos:
-                # [0]:video filename  [1]:fps    # [2]:nb frames [4]:video index+1  [5]:status
-                    if file_info[1]:
-                        duration_sec = round(file_info[2] / file_info[1])
-                    else:
-                        duration_sec = 0
-                    self.listbox_files.insert(tk.END, f"({file_info[5]}) #{file_info[4] + 1:<4}= '{file_info[0]}' (fps: {file_info[1]}, duration: {sf.format_duration(duration_sec)})")
+                # [4]:video index+1  [5]:status   [0]:video filename  [1]:fps    # [2]:duration
+                    self.listbox_files.insert(tk.END, f"({file_info[5]}) #{file_info[4] + 1:<4}= {file_info[0]} (fps: {file_info[1]}, duration: {sf.format_duration(file_info[2])})")
 
             else:      # No video found, NOT A SERIE DISPLAY
                 self.listbox_files.delete(0, "end")
@@ -648,6 +641,7 @@ class Select(tk.Frame):  # Class of page select
                 self.listbox_roi.insert(tk.END, f" You have selected {len(roi_coord[0])} ROI(s) :")
             # In both case display list of ROIs
             self.listbox_roi.insert(tk.END, "")
+            self.listbox_roi.insert(tk.END, "Legend: ROI[roi index] ----> [x_topleft, y_topleft], [x_bottomright, y_bottomright]")
             for i, _ in enumerate(roi_coord[0]):
                 self.listbox_roi.insert(tk.END, f"    ROI[{i + 1}] --> {' , '.join([str(coord) for coord in roi_coord[0][i]])}")
         # SERIE DISPLAY
@@ -656,9 +650,8 @@ class Select(tk.Frame):  # Class of page select
             # Get subdirectory shortnames lists
             serie_subdir_names = sf.read_infos_serie()
             # By default using each subserie video dimensions as ROI coordinates
-            self.listbox_roi.insert(tk.END, "  SERIE ANALYSIS")
-            self.listbox_roi.insert(tk.END, "  Default ROIs are full size of first valid video for each subserie, standard selection is disabled")
-            self.listbox_roi.insert(tk.END, "  Click 'Reselect subseries ROIs' if you need to reselect ROIs (max 8), you will be prompted for each subserie.")
+            self.listbox_roi.insert(tk.END, "  SERIE ANALYSIS: Default ROIs are full size of first valid video for each subserie, standard selection is disabled.")
+            self.listbox_roi.insert(tk.END, "  Click 'Reselect subseries ROIs' if you need to reselect ROIs (max 8), you will be prompted for each serie.")
             self.listbox_roi.insert(tk.END, "  Legend: **Subserie <subserie name>     ROI[roi index] ----> [x_topleft, y_topleft], [x_bottomright, y_bottomright]")
             for subdir_index, subdir_name in enumerate(serie_subdir_names):
                 self.listbox_roi.insert(tk.END, f"**Subserie <{subdir_name}>")

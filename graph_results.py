@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"Sasdi module to display motion analysis results and play videos"
+"Sasdi module to display motion analysis results and play videos v4.4"
 
 import platform                             # standard library
 import os
@@ -26,15 +26,21 @@ class Index():
     "Class for graphing values (callback on itself)"
 
     def set_roi_checkbuttons_properties(self, label):
-        "Display each ROI line plot according to checkbuttons status"
-        # input checkbutton label ('roi1', 'roi2', ... 1-based)
-        index = int(label[3:]) - 1
+        "Callback function for each roi checkbutton, display ROI line plots according to checkbutton status"
+
+        # input is checkbutton label ('roi1', 'roi2', ... 1-based)
+        index = int(label[3:]) - 1      # calculate 0-based index of roi
         if index < len(self.motion_plots):
-            # reverse the visibility status (True or False)
-            self.motion_plots[index].set_visible(not self.motion_plots[index].get_visible())
+            # Get the status of checkbutton (list)
+            status_list = self.check_roi_list[index].get_status()
+            checkbutton_status = status_list[0]
+            # According to status display or not the plot(s)
+            self.motion_plots[index].set_visible(checkbutton_status)
             if self.radiobutton_audio_power.value_selected != "None":
-                self.audio_power_plots[index].set_visible(not self.audio_power_plots[index].get_visible())
+                self.audio_power_plots[index].set_visible(checkbutton_status)
             plt.draw()
+
+
 
     def show_photo_roi(self):
         "Display first video frame with drawn ROI"
@@ -145,6 +151,31 @@ class Index():
 
         return all_roi_coord, np.array(motion_time_sec, dtype=np.float32)
 
+    def update_roi_checkbuttons(self):
+        """ Update display of roi checkbuttons for the new displayed file
+            Already displayed roi keep with the same visibility status
+        """
+
+        # Reminder: each checkbutton (check_roi_list) is alone in its own axe (check_roi_axes_list)
+        self.nb_roi = len(self.motion_plots)
+        old_roi = self.existing_roi
+        self.existing_roi = [1] * self.nb_roi + [0] * (8 - self.nb_roi)       # if 3 ROIs [1,1,1,0,0,0,0,0]
+        # List of roi change: 0=idem, 1=appear, -1=disappear, ex [0, 1, 1, 0, 0, 0, 0, 0]
+        diff_roi = [n - o for n, o in zip(self.existing_roi, old_roi)]
+        #print(f"Diff: {diff_roi}")
+        # If number of set roi change:
+        #        the apppearing roi are set to visible
+        #        the disappearing roi are set to unvisible (to hide the cross)
+        for i, check_ax in enumerate(self.check_roi_axes_list):
+            if diff_roi[i] < 0:     # this roi is absent in the new file
+                check_ax.set_visible(0)
+                check_ax.set_alpha(0)  # Set alpha to 0 to ensure transparency
+                self.check_roi_list[i].set_active(0, False)  # Desactive le premier bouton (index 0) de l'axe en cours
+            elif diff_roi[i] > 0:     # this roi is now in use in the new file
+                check_ax.set_visible(1)
+                check_ax.set_alpha(1)  # Set alpha to 0 to ensure transparency
+                self.check_roi_list[i].set_active(0)  # Active le premier bouton (index 0) de l'axe en cours
+
 
     def __init__(self, screen_width, screen_height):
         "Init method for Index class"
@@ -170,7 +201,7 @@ class Index():
         self.full_xindex_range = True
 
         # Get list of all selected videos from list_videos.json:
-        # [0]:video filename, [1]:fps (float), [2]:nb_frames (int), [3]:pathname, [4]:index (int), [5]:status ('A', '-', 'M', 'C'), [6]:subdir index (0 if not a serie)
+        # [0]:video filename, [1]:fps (float), [2]:duration (int), [3]:pathname, [4]:index (int), [5]:status ('A', '-'), [6]:subdir index if serie or 0
         videos_infos_all, message = sf.read_list_videos()
         if message != '':
             tk.messagebox.showwarning('WARNING', message)
@@ -207,9 +238,8 @@ class Index():
         ### ALL ANALYSIS
         # Dictionnaries of videoplayers commands and starting options
         vlc_path = "vlc"
-        # if self.current_os == "Linux":
-        #     # vlc_path = os.path.join("usr", "bin", "vlc")
-        #     vlc_path = "vlc"
+        if self.current_os == "Linux":
+            vlc_path = os.path.join(os.sep, "usr", "bin", "cvlc")
         if self.current_os == "Windows":
             pathvlc1 = os.path.join("C:" + os.sep, "Program Files (x86)", "VLC", "vlc.exe")
             pathvlc2 = os.path.join("C:" + os.sep, "Program Files (x86)", "VideoLAN", "VLC", "vlc.exe")
@@ -268,8 +298,6 @@ class Index():
         self.axe1_graph_lower_limit = 0
 
 
-        #Remove toolbar of pyplot window
-        plt.rcParams['toolbar'] = 'None'
         #creates subplot of main plot plt (nrows, ncols, index in virtual grid), return self.main_fig and axes objects
         #nrows=1, ncols=1, sharex=False, sharey=False
         # Two subplots (axe1 unused), the axes array is 1-d
@@ -278,15 +306,24 @@ class Index():
         # Set custom color for matplotlib cycler
         custom_cycler = (cycler(color=sf.MY_COLORS_NAMED))
         plt.rc('axes', prop_cycle=custom_cycler)
+        #Remove toolbar of pyplot window
+        plt.rcParams['toolbar'] = 'None'
 
         # Add AUDIO / POWER XY plot (empty)
         self.audio_power_x_values = [0]
         self.axe1_y_values = [0]
-        self.audio_power_plots = self.axe_audio_power.plot(self.audio_power_x_values, self.axe1_y_values, '-b', linewidth=0.5)
+        self.audio_power_plots = self.axe_audio_power.plot(self.audio_power_x_values,
+                                                           self.axe1_y_values,
+                                                           '-b',
+                                                           linewidth=0.5
+                                                           )
 
         # Add MOTION XY plot
         # x=self.timemin, y= all columns except the first of self.timesec_motion from display range with line, default colors from matplotlib return line2D object
-        self.motion_plots = self.axe_motion.plot(self.timemin[self.motion_index_left_limit:self.motion_index_right_limit], self.timesec_motion[self.motion_index_left_limit:self.motion_index_right_limit, 1:], linewidth=0.5)
+        self.motion_plots = self.axe_motion.plot(self.timemin[self.motion_index_left_limit:self.motion_index_right_limit],
+                                                 self.timesec_motion[self.motion_index_left_limit:self.motion_index_right_limit, 1:],
+                                                 linewidth=0.5
+                                                 )
         # Set whole figure color
         self.main_fig.set_facecolor(sf.COLOR_BACKGROUND)
 
@@ -297,21 +334,21 @@ class Index():
                                          left=True,
                                          labelbottom=False,
                                         )
-        self.axe_audio_power.grid(b=True,
+        self.axe_audio_power.grid(visible=True,
                                   which='major',
                                   axis='x',
                                   color='0.1',
                                   linestyle=':',
                                   linewidth=1.5,
                                   )
-        self.axe_audio_power.grid(b=True,
+        self.axe_audio_power.grid(visible=True,
                                   which='major',
                                   axis='y',
                                   color='0.1',
                                   linestyle=':',
                                   linewidth=1,
                                   )
-        self.axe_audio_power.grid(b=True,
+        self.axe_audio_power.grid(visible=True,
                                   which='minor',
                                   axis='both',
                                   color='0.1',
@@ -332,21 +369,21 @@ class Index():
                                     which='minor',
                                     labelsize=10
                                     )
-        self.axe_motion.grid(b=True,
+        self.axe_motion.grid(visible=True,
                              which='major',
                              axis='x',
                              color='0.1',
                              linestyle=':',
                              linewidth=1.5,
                              )
-        self.axe_motion.grid(b=True,
+        self.axe_motion.grid(visible=True,
                              which='major',
                              axis='y',
                              color='0.1',
                              linestyle=':',
                              linewidth=1,
                              )
-        self.axe_motion.grid(b=True,
+        self.axe_motion.grid(visible=True,
                              which='minor',
                              axis='both',
                              color='0.1',
@@ -403,7 +440,7 @@ class Index():
         self.ax_audio_power.set_facecolor(sf.COLOR_BACKGROUND)
         self.radiobutton_audio_power = mpl_wg.RadioButtons(self.ax_audio_power, ('None', 'Power', 'Audio'))
         self.radiobutton_audio_power.set_active(0)      #set first choice active
-        self.radiobutton_audio_power.circles[0].set_radius(0.05)
+        # self.radiobutton_audio_power.circles[0].set_radius(0.05)
 
         ## BUTTON INCREASE AUDIO/POWER Y AXIS
         self.ax_audio_power_plus = plt.axes([0.005, 0.82, 0.045, 0.04])
@@ -457,40 +494,43 @@ class Index():
                                               hovercolor=sf.COLOR_BUTTON_OVER,
                                               )
 
-        ## CHECK BUTTON FOR ROI DISPLAY
-        self.ax_roi = plt.axes([0.06, 0.31, 0.07, 0.2],     # space given to checkbuttons
-                               frame_on=False,     # border
-                               )
-        # Labels roi1, roi2, ...
-        check_roi_labels = ["roi" + str(i) for i in range(1, 9)]
-        # Default value is checked
-        check_roi_active = [True] * 8
-        # Creates 8 ROI checkbuttons
-        self.check_roi = mpl_wg.CheckButtons(self.ax_roi,
-                                             labels=check_roi_labels,
-                                             actives=check_roi_active,
-                                             )
-        # Define properties of checkbuttons rectangles
-        self.ax_roi.set_prop_cycle(None)    # Reset color cycle
-        for index, rect_prop in enumerate(self.check_roi.rectangles):
-            rect_prop.set_width(0.07)
-            rect_prop.set_height(0.07)
-            rect_prop.set_alpha(0)      # all invisible
-            rect_prop.set_edgecolor(f"C{index}")
-        # Define properties of checkbuttons text
-        self.ax_roi.set_prop_cycle(None)    # Reset color cycle
-        for index, text_prop in enumerate(self.check_roi.labels):
-            text_prop.set_color(f"C{index}")
-            # text_prop.set_fontproperties('bold')
-            text_prop.set_alpha(0)      # all invisible
-        # Set the 2 lines forming the 8 checks to invisible
-        for d_lines in self.check_roi.lines:
-            for s_line in d_lines:
-                s_line.set_alpha(0)
-        # checkbuttons are shown (alpha=1) or not in replot
+        # get number of ROIs
+        self.nb_roi = len(self.motion_plots)
+        # initialise displayed roi to 1 [1, 1, 1, 1, 1, 1, 1, 1]
+        self.existing_roi = [1] * 8
 
-        ## BUTTON PREVIOUS SERIE
-        self.ax_serie_previous = plt.axes([0.005, 0.1, 0.08, 0.055])
+        ## CHECK BUTTON FOR ROI DISPLAY
+        # Create list of 8 checkbuttons and their 8 axes (1 per button)
+        self.check_roi_list = []
+        self.check_roi_axes_list = []
+
+        # Position for the first checkbox
+        left, bottom = 0.06, 0.51
+        width, height = 0.03, 0.025
+
+        for i in range(8):
+            rax = plt.axes([left, bottom - i * 0.025, width, height])
+            self.check_roi_list.append(mpl_wg.CheckButtons(
+                                                ax=rax,
+                                                labels=["roi" + str(i + 1)],
+                                                actives=[i < self.nb_roi],
+                                                label_props={'color': [sf.MY_COLORS_NAMED[i]]},
+                                                frame_props={'edgecolor': [sf.MY_COLORS_NAMED[i]]},
+                                                check_props={'facecolor': [sf.MY_COLORS_NAMED[i]]}
+                                             )
+                                    )
+            # Make the Axes background transparent and remove the border
+            rax.set_facecolor('none')  # Transparent background
+            for spine in rax.spines.values():
+                spine.set_visible(False)  # Remove border
+            # Add axe to list
+            self.check_roi_axes_list.append(rax)
+
+        # Update display of roi checkbuttons
+        self.update_roi_checkbuttons()
+
+        ## BUTTON PREVIOUS SUBSERIE
+        self.ax_serie_previous = plt.axes([0.005, 0.1, 0.07, 0.055])
         self.btn_serie_previous = mpl_wg.Button(self.ax_serie_previous,
                                                 label='(P)rev subserie',
                                                 color=sf.COLOR_BUTTON,
@@ -499,8 +539,8 @@ class Index():
         # Hide button previous serie at starts
         self.ax_serie_previous.set_visible(False)
 
-        ## BUTTON NEXT SERIE
-        self.ax_serie_next = plt.axes([0.09, 0.1, 0.08, 0.055])
+        ## BUTTON NEXT SUBSERIE
+        self.ax_serie_next = plt.axes([0.089, 0.1, 0.07, 0.055])
         self.btn_serie_next = mpl_wg.Button(self.ax_serie_next,
                                             label='(N)ext subserie',
                                             color=sf.COLOR_BUTTON,
@@ -514,7 +554,7 @@ class Index():
             self.ax_serie_next.set_visible(False)
 
         ## BUTTON PREVIOUS VIDEO
-        self.ax_video_previous = plt.axes([0.175, 0.1, 0.07, 0.07])
+        self.ax_video_previous = plt.axes([0.169, 0.1, 0.07, 0.07])
         self.btn_video_previous = mpl_wg.Button(self.ax_video_previous,
                                                 label='< Prev video',
                                                 color=sf.COLOR_BUTTON,
@@ -608,7 +648,7 @@ class Index():
         # self.ax_videoplayers.set_xlabel('Video player')
         self.radio_videoplayers = mpl_wg.RadioButtons(self.ax_videoplayers, ('VLC player', 'OCV player'))
         self.radio_videoplayers.set_active(0)      #set first choice active
-        self.radio_videoplayers.circles[0].set_radius(0.05)
+        # MODIF self.radio_videoplayers.circles[0].set_radius(0.05)
 
         ## CLOSE BUTTON
         self.ax_close = plt.axes([0.92, 0.01, 0.05, 0.05],
@@ -676,12 +716,55 @@ class Index():
     def replot(self):
         "Method to replot XY graphs"
 
+
+        ### LOWER AXIS MOTION
+
+        # Reset color cycle for MOTION AXE0 plots
+        self.axe_motion.set_prop_cycle(None)
+
+        # Only clear the plotted motion data
+        for line in self.axe_motion.lines:
+            line.remove()
+
+        # Apply the choosen X axes range (full or limited range)
+        if self.full_xindex_range:
+            # Set full X axis
+            self.motion_index_left_limit = 0
+            self.motion_index_right_limit = len(self.timemin) - 1   #new self.motion_index_right_limit limit in points
+            #Set Full axis button color to inactive
+            self.btn_time_fullscale.color = sf.COLOR_BUTTON_ACTIVE
+            #Calculates new limits (in min)
+            self.timemin_left_limit = 0                    #set display min time value (in min)
+
+        self.timemin_left_limit = ((self.motion_index_left_limit) / self.sampling_frequency) / 60    #set display min time value (in min)
+        self.timemin_right_limit = ((self.motion_index_right_limit + 1) / self.sampling_frequency) / 60    #set display max time value (in min)
+        # set graphs display x limits (in min)
+        self.axe_motion.set_xlim(self.timemin_left_limit, self.timemin_right_limit)
+
+        # LOWER AXE = MOTION XY plot from list time in minutes and last columns of timesec_motion
+        self.motion_plots = self.axe_motion.plot(self.timemin[self.motion_index_left_limit:self.motion_index_right_limit],
+                                                 self.timesec_motion[self.motion_index_left_limit:self.motion_index_right_limit, 1:],
+                                                 linewidth=0.5
+                                                 )
+
+        """
+        if self.autoscale_motion:
+            self.motion_upper_limit = np.amax(self.timesec_motion[self.motion_index_left_limit:self.motion_index_right_limit, 1:])   # calculate graphs display y upper limit according to max value
+        self.axe_motion.set_ylim(0, self.motion_upper_limit)   # set graphs display y limits
+        """
+
+
+
+
         # Set audio/power graph values to zero
         self.axe1_x_values_sec = [0]
         self.axe1_y_values = [0]
 
-        # Reset line object(s) and color cycle for AUDIO/POWER AXE1 plots
-        self.axe_audio_power.lines = []
+        # Only clear the plotted audio/power data
+        for line in self.axe_audio_power.lines:
+            line.remove()
+
+        # Reset color cycle for AUDIO/POWER AXE1 plots
         self.axe_audio_power.set_prop_cycle(None)
 
         # UPPER AXE = AUDIO DISPLAY
@@ -796,7 +879,7 @@ class Index():
                 self.axe1_graph_lower_limit = 0
                 self.axe_audio_power.set_ylim(self.axe1_graph_lower_limit, self.axe_audio_power_graph_upper_limit)
 
-        # UPPER AXE = NO DISPLAY
+        # UPPER AXIS = NO DISPLAY
         else:
             # Hide buttons
             self.ax_audio_power_plus.set_visible(False)
@@ -813,49 +896,19 @@ class Index():
                                            pad=15,
                                           )
 
-        # Reset line object(s) and color cycle for MOTION AXE0 plots
-        self.axe_motion.lines = []
-        self.axe_motion.set_prop_cycle(None)
+        ############### AVANT
 
-        # Apply the choosen X axes range (full or limited range)
-        if self.full_xindex_range:
-            # Set full X axis
-            self.motion_index_left_limit = 0
-            self.motion_index_right_limit = len(self.timemin) - 1   #new self.motion_index_right_limit limit in points
-            #Set Full axis button color to inactive
-            self.btn_time_fullscale.color = sf.COLOR_BUTTON_ACTIVE
-            #Calculates new limits (in min)
-            self.timemin_left_limit = 0                    #set display min time value (in min)
+        # Update display of roi checkbuttons
+        self.update_roi_checkbuttons()
 
-        self.timemin_left_limit = ((self.motion_index_left_limit) / self.sampling_frequency) / 60    #set display min time value (in min)
-        self.timemin_right_limit = ((self.motion_index_right_limit + 1) / self.sampling_frequency) / 60    #set display max time value (in min)
-        # set graphs display x limits (in min)
-        self.axe_motion.set_xlim(self.timemin_left_limit, self.timemin_right_limit)
-
-        # LOWER AXE = MOTION XY plot from list time in minutes and last columns of timesec_motion
-        self.motion_plots = self.axe_motion.plot(self.timemin[self.motion_index_left_limit:self.motion_index_right_limit],
-                                                 self.timesec_motion[self.motion_index_left_limit:self.motion_index_right_limit, 1:],
-                                                 linewidth=0.5
-                                                 )
-
-        # Display (alpha=1) the existing roi checkbuttons
-        nb_roi = len(self.motion_plots)
-        existing_roi = [1] * nb_roi + [0] * (8 - nb_roi)        # if 3 ROIs [1,1,1,0,0,0,0,0]
-        for index, val in enumerate(existing_roi):
-            self.check_roi.lines[index][0].set_alpha(val)
-            self.check_roi.lines[index][1].set_alpha(val)
-            self.check_roi.labels[index].set_alpha(val)
-            self.check_roi.rectangles[index].set_alpha(val)
         # Display or not each plot of video analysis according to present checkbuttons status
-        checkbuttons_status = self.check_roi.get_status()
         for index_0, lineplot_0 in enumerate(self.motion_plots):
-            lineplot_0.set_visible(checkbuttons_status[index_0])
+            status0 = self.check_roi_list[index_0].get_status()
+            lineplot_0.set_visible(status0[0])
         for index_1, lineplot_1 in enumerate(self.audio_power_plots):
-            lineplot_1.set_visible(checkbuttons_status[index_1])
+            status1 = self.check_roi_list[index_1].get_status()
+            lineplot_1.set_visible(status1[0])
 
-        if self.autoscale_motion:
-            self.motion_upper_limit = np.amax(self.timesec_motion[self.motion_index_left_limit:self.motion_index_right_limit, 1:])   # calculate graphs display y upper limit according to max value
-        self.axe_motion.set_ylim(0, self.motion_upper_limit)   # set graphs display y limits
 
         # If serie analysis
         serie_display = ""
@@ -887,11 +940,13 @@ class Index():
         #Show photo with ROIs of current video
         self.show_photo_roi()
 
-        # ReDraw whole figure self.main_fig
-        self.main_fig.canvas.draw()
+        # ReDraw whole figure 
+        plt.draw()
+        plt.pause(0.01)  # Allow GUI to update
 
 
-        #####################################################
+
+    #####################################################
     def onkey(self, event):
         "Method to start methods from keyboard and not from button"
 
@@ -957,19 +1012,6 @@ class Index():
 
         #SamplingFrequency (Hz)
         self.sampling_frequency = 1 / (60 * (self.timemin[2] - self.timemin[1]))
-
-        # Initialise display limits self.motion_index_left_limit and self.motion_index_right_limit (points index of self.timemin and self.timesec_motion) to 0 and last point
-        self.motion_index_left_limit = 0
-        self.motion_index_right_limit = len(self.timesec_motion) - 1
-
-        # Initialise display limits self.timemin_left_limit and self.timemin_right_limit (in min)
-        self.timemin_left_limit = 0.
-        self.timemin_right_limit = self.timemin[-1]
-
-        # Initialise autoscale of XY graph
-        self.autoscale_motion = True
-        #Initialise Y limit of XY graph
-        self.motion_upper_limit = np.amax(self.timesec_motion[:, 1:])
 
         # Refresh the display of buttons for serie
         self.refresh_buttons()
@@ -1074,7 +1116,7 @@ class Index():
             #Refresh File slider value and get all values of csv file in np array self.timesec_motion
             self.file_slider.set_val(float(self.videos_current_index + 1))
             #Get all values of csv file in np array self.timesec_motion
-            # self.roi_coord, self.timesec_motion = self.open_csv_file(os.path.join(self.videos_infos[self.videos_current_index][3], self.videos_infos[self.videos_current_index][0]+".csv"))
+            self.roi_coord, self.timesec_motion = self.open_csv_file(os.path.join(self.videos_infos[self.videos_current_index][3], self.videos_infos[self.videos_current_index][0]+".csv"))
             #Get time (in min) in list self.timemin from first column of self.timesec_motion
             self.timemin = self.timesec_motion[:, 0] / 60
             # Display from beginning of file
@@ -1490,8 +1532,15 @@ def open_graph(screen_width, screen_height):
     #BUTTON DECREASE MOTION Y AXIS
     callback.btn_motion_minus.on_clicked(callback.minus_y_axis_motion)
 
-    #CHECK BUTTONS TO DISPLAY PLOTS
-    callback.check_roi.on_clicked(callback.set_roi_checkbuttons_properties)
+    #CHECK BUTTONS TO DISPLAY EACH ROI PLOT
+    callback.check_roi_list[0].on_clicked(callback.set_roi_checkbuttons_properties)
+    callback.check_roi_list[1].on_clicked(callback.set_roi_checkbuttons_properties)
+    callback.check_roi_list[2].on_clicked(callback.set_roi_checkbuttons_properties)
+    callback.check_roi_list[3].on_clicked(callback.set_roi_checkbuttons_properties)
+    callback.check_roi_list[4].on_clicked(callback.set_roi_checkbuttons_properties)
+    callback.check_roi_list[5].on_clicked(callback.set_roi_checkbuttons_properties)
+    callback.check_roi_list[6].on_clicked(callback.set_roi_checkbuttons_properties)
+    callback.check_roi_list[7].on_clicked(callback.set_roi_checkbuttons_properties)
 
     #BUTTON PREVIOUS VIDEO
     callback.btn_video_previous.on_clicked(callback.previous_video)

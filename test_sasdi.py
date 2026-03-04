@@ -21,7 +21,7 @@ class SimpleTestCase(unittest.TestCase):
         required_packages = {
                              "cv2": "opencv-python",
                              "cycler": "cycler",
-                             "ffprobe": "ffprobe",
+                             "moviepy": "moviepy",
                              "matplotlib":"matplotlib",
                              "numpy": "numpy",
                              "scipy": "scipy",
@@ -37,6 +37,7 @@ class SimpleTestCase(unittest.TestCase):
         "Test of reading/writing to parameters.json"
 
         test_passed = True
+        myparams = None
         params_pathfile = os.path.join(sys.path[0], 'params', 'parameters.json')
         try:
             with open(params_pathfile, 'r') as filereader:
@@ -57,11 +58,30 @@ class SimpleTestCase(unittest.TestCase):
         "Test of video analysis script with defaultvideo.mp4"
         # 4 ROIs set for defaultvideo.mp4"
         roi_coord = [[[0, 0], [500, 580]], [[501, 0], [998, 580]], [[0, 585], [500, 1158]], [[503, 583], [998, 1158]]]
-        # [0]:video filename, [1]:fps, [2]:nb frames, [3]:pathname, [4] roi coordinates of corresponding subdir (0 if not a serie), [5]:"to analyse" video index, [6] total number of analysed videos
-        data = ["defaultvideo.mp4", 15, 300, os.path.join(sys.path[0], "params"), roi_coord, 0, 1]
+        # fps, video_path, video_filename, roi coordinates, video index, total nb video
+        data = [15, os.path.join(sys.path[0], "params"), "defaultvideo.mp4", roi_coord, 0, 1]
         sum_intensities = video_analysis.one_video_analysis(data)
         sum_intensities = round(sum_intensities, 1)
         assert (367. < sum_intensities < 369.), f"Video analysis error, sum {sum_intensities} not in range 367-369"
+
+    def test_moviepy(self):
+        "Test of moviepy getting parameters with defaultvideo.mp4"
+        from moviepy.video.io.VideoFileClip import VideoFileClip
+        fullvideopath = os.path.join(sys.path[0], "params", "defaultvideo.mp4")
+        moviepy_duration = 0
+        moviepy_fps = 0
+        try:
+            clip = VideoFileClip(fullvideopath)
+            moviepy_duration = clip.duration
+            moviepy_fps = clip.fps
+        except:
+            test_passed = False
+        if (moviepy_duration > 1 and moviepy_fps > 1):
+            test_passed = True
+        else:
+            test_passed = False
+        assert test_passed, "Error with moviepy, cannot access video parameters"
+
 
     def test_vlc_video_open(self):
         "Test reading defaultvideo.mp4 with vlc"
@@ -71,7 +91,7 @@ class SimpleTestCase(unittest.TestCase):
         video_pathname = os.path.join(sys.path[0], "params", "defaultvideo.mp4")
         # linux
         if current_os == "Linux":
-            mycommand = ["vlc", video_pathname]
+            mycommand = ["cvlc", video_pathname]
         # windows
         if current_os == "Windows":
             vlc_path = ""
@@ -108,4 +128,5 @@ class SimpleTestCase(unittest.TestCase):
 
 
 if __name__ == "__main__":
+
     unittest.main() # run all tests

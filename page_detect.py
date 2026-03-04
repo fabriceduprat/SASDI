@@ -251,6 +251,36 @@ class Detect(tk.Frame):
     ############################################# METHODS OF CLASS DETECT #######################################
     #############################################################################################################
 
+    def format_duration(self, duration_sec):
+        "Get integer duration in sec and return string with formated duration in h:min:s (null values are not displayed)"
+
+        if duration_sec < 60:    # Duration is less than 60s
+            result = str(int(duration_sec)) + "S"
+            return result
+
+        duration_min = duration_sec // 60
+        remaindersec = duration_sec % 60
+        if duration_min > 60:    # Duration is more than 1 hour
+            value_hour = duration_min // 60
+            remaindermin = duration_min % 60
+            if remaindermin:
+                result = str(int(value_hour)) + "H " + str(int(remaindermin)) + "MIN "
+            else:
+                result = str(int(value_hour)) + "H "
+            if remaindersec != 0:
+                result += str(int(remaindersec)) + "S"
+            return result
+
+        else:    # Duration is less than 1 hour
+            if duration_min:
+                result = str(int(duration_min)) + "MIN "
+            else:
+                result = ""
+            if remaindersec:
+                result += str(int(remaindersec)) + "S"
+            return result
+
+
     def update_listbox(self, videorank, nbvideos, time_analysis):
         " Updating listbox, arguments videorank (int), nbvideos (int), time_analysis (float))"
 
@@ -263,7 +293,7 @@ class Detect(tk.Frame):
             self.listbox_infos.delete(0, "end")
             self.listbox_infos.insert(tk.END, " ")
             self.listbox_infos.insert(tk.END, "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! ")
-            self.listbox_infos.insert(tk.END, f"   ANALYSIS OF {nbvideos} VIDEO(S) COMPLETED IN {sf.format_duration(int(time_analysis))}")
+            self.listbox_infos.insert(tk.END, f"   ANALYSIS OF {nbvideos} VIDEO(S) COMPLETED IN {self.format_duration(int(time_analysis))}")
             self.listbox_infos.insert(tk.END, "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! ")
             self.listbox_infos.insert(tk.END, " ")
         self.update_idletasks()
@@ -292,19 +322,17 @@ class Detect(tk.Frame):
             nb_videos = 0
             list_videos_to_analyse = []
             for video_infos in self.list_videos:
-                # for info: [0]:video filename, [1]:fps, [2]:nb frames, [3]:pathname, [4]:file index, [5]:status ('A', '-', 'M', 'C'), [6]:subdir index
-                if video_infos[5] != 'C':
-                    #csv_fullpathname = os.path.join(video_infos[3], video_infos[0] + ".csv")
-                    #if self.check_reanalyse.get() == 0 and os.path.exists(csv_fullpathname):
-                    if self.check_reanalyse.get() == 0 and video_infos[5] == 'A':
-                        # reanalyse not asked and file already analysed
-                        continue
-                    else:
-                        # For each video file, generate a list with specific infos needed for analysis
-                        list_videos_to_analyse.append([video_infos[0], video_infos[1], video_infos[2], video_infos[3], roi_coord[video_infos[6]], nb_videos])
-                        nb_videos += 1
+                # for info: [0]:video filename, [1]:fps, [2]:duration, [3]:pathname, [4]:file index, [5]:status ('A', '-'), [6]:subdir index
+                name = os.path.join(video_infos[3], video_infos[0] + ".csv")
+                if self.check_reanalyse.get() == 0 and os.path.exists(name):
+                    # reanalyse not asked and file already analysed
+                    continue
+                else:
+                    # For each video file, generate a list with specific infos needed for analysis
+                    # fps, video_path, video_filename, roi coordinates of corresponding subdir (0 if not a serie), "to analyse" video index
+                    list_videos_to_analyse.append([video_infos[1], video_infos[3], video_infos[0], roi_coord[video_infos[6]], nb_videos])
+                    nb_videos += 1
             # Add total number of videos to analyse to each video list infos
-            # [0]:video filename, [1]:fps, [2]:nb frames, [3]:pathname, [4] roi coordinates of corresponding subdir (0 if not a serie), [5]:"to analyse" video index, [6] total number of analysed videos
             list_videos_to_analyse = [infos + [nb_videos] for infos in list_videos_to_analyse]
 
             if not list_videos_to_analyse and self.list_videos:
